@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Teleprompter that follows your voice</title>
+<style>
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: #f4efec;
+    color: #251f21;
+    font-family: system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+}
+
+.page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 20px 16px 48px;
+}
+
+h1 {
+    font-size: 26px;
+    line-height: 1.2;
+    margin: 8px 0 6px;
+}
+
+.sub {
+    color: #585254;
+    font-size: 15px;
+    line-height: 1.5;
+    margin: 0 0 20px;
+}
+
+.card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 18px;
+    margin-bottom: 16px;
+}
+
+.card h2 {
+    font-size: 18px;
+    margin: 0 0 12px;
+}
+
+textarea {
+    width: 100%;
+    min-height: 200px;
+    border: 1px solid #eae9ea;
+    border-radius: 10px;
+    padding: 12px;
+    font: inherit;
+    font-size: 16px;
+    resize: vertical;
+}
+
+textarea:focus { outline: 2px solid #73a89a; }
+
+.hint { color: #585254; font-size: 13px; margin: 8px 0 0; }
+
+.seg {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0;
+    flex-wrap: wrap;
+}
+
+.seg button, .btn {
+    border: 1px solid #eae9ea;
+    background: #fff;
+    color: #251f21;
+    border-radius: 999px;
+    padding: 10px 18px;
+    font: inherit;
+    font-size: 15px;
+    cursor: pointer;
+    min-height: 44px;
+}
+
+.seg button.on {
+    background: #73a89a;
+    border-color: #73a89a;
+    color: #fff;
+    font-weight: 600;
+}
+
+.seg button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.btn-primary {
+    background: #251f21;
+    border-color: #251f21;
+    color: #fff;
+    font-weight: 600;
+    width: 100%;
+    padding: 14px;
+    font-size: 17px;
+}
+
+.btn-primary:disabled { opacity: 0.4; cursor: default; }
+
+.btn.ghost.on {
+    background: #73a89a;
+    border-color: #73a89a;
+    color: #fff;
+}
+
+.note {
+    background: #f4efec;
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 14px;
+    color: #585254;
+    line-height: 1.5;
+    margin-top: 12px;
+}
+
+.note strong { color: #251f21; }
+
+.steps { margin: 0; padding-inline-start: 22px; color: #585254; font-size: 15px; line-height: 1.7; }
+
+/* Runner */
+.bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.pill {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.pill-live { background: rgba(115, 168, 154, 0.2); color: #4c7a6d; }
+.pill-idle { background: #f4efec; color: #585254; }
+
+.counter { color: #585254; font-size: 14px; margin-inline-start: auto; }
+
+.bar .btn { padding: 8px 14px; min-height: 40px; font-size: 14px; }
+
+.stage {
+    position: relative;
+    background: #171314;
+    border-radius: 14px;
+    overflow: hidden;
+    height: 62vh;
+    min-height: 320px;
+}
+
+.scroll {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+
+.scroll::-webkit-scrollbar { display: none; }
+
+.line {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: 38%;
+    height: 2px;
+    background: rgba(115, 168, 154, 0.55);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.text {
+    padding: 45vh 26px 55vh;
+    white-space: pre-wrap;
+    text-align: center;
+    font-weight: 600;
+    line-height: 1.55;
+    color: #fff;
+    overflow-wrap: break-word;
+}
+
+.text.mirror { transform: scaleX(-1); }
+
+.w { color: rgba(255, 255, 255, 0.38); transition: color 0.15s ease; cursor: pointer; }
+.w.past { color: rgba(255, 255, 255, 0.6); }
+.w.current {
+    color: #73a89a;
+    text-decoration: underline;
+    text-underline-offset: 8px;
+    text-decoration-thickness: 3px;
+}
+
+.problem {
+    background: #fdf3e7;
+    border: 1px solid #f0dfc3;
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 14px;
+    color: #6b4e1e;
+    margin-top: 12px;
+    line-height: 1.5;
+}
+
+.controls { margin-top: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+.slider-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.slider-row label { font-size: 14px; color: #585254; min-width: 70px; }
+
+.slider-row input[type="range"] { flex: 1; min-width: 140px; accent-color: #73a89a; }
+
+.slider-row .val { font-size: 14px; color: #251f21; min-width: 110px; text-align: end; }
+
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+body.running { background: #0e0c0d; }
+body.running .page { max-width: 900px; }
+body.running .bar .counter { color: #b9b4b5; }
+body.running .pill-idle { background: #2a2527; color: #b9b4b5; }
+body.running .bar .btn { background: #2a2527; border-color: #3a3436; color: #ece7e8; }
+body.running .seg button { background: #2a2527; border-color: #3a3436; color: #ece7e8; }
+body.running .seg button.on { background: #73a89a; border-color: #73a89a; color: #fff; }
+body.running .slider-row label { color: #b9b4b5; }
+body.running .slider-row .val { color: #ece7e8; }
+body.running .hint { color: #8d8687; }
+body.running .problem { background: #33291d; border-color: #57452a; color: #eec888; }
+
+#steadyRow[hidden] { display: none; }
+
+</style>
+</head>
+<body>
+<div class="page">
+
+    <section id="editor">
+        <h1>Teleprompter that follows your voice</h1>
+        <p class="sub">Paste your speech, press Start, and read aloud. The words move as you speak and wait while you pause, in English or Hebrew.</p>
+
+        <div class="card">
+            <h2>Your script</h2>
+            <textarea id="script" placeholder="Paste your speech here…" aria-label="Your script"></textarea>
+            <p class="hint" id="wordCount">Nothing pasted yet</p>
+            <div class="seg" role="group" aria-label="Language">
+                <button type="button" id="langEn" aria-pressed="true">English</button>
+                <button type="button" id="langHe" aria-pressed="false">עברית</button>
+            </div>
+            <button type="button" class="btn btn-primary" id="start" disabled>Start</button>
+            <div class="note">
+                <strong>About the microphone.</strong>
+                Voice follow asks for microphone access and uses your browser's speech service over the internet. It works in Chrome and Edge on computers and Android phones, and in Safari on iPhone. If it cannot listen, use Steady speed.
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>How it works</h2>
+            <ol class="steps">
+                <li>Paste or type your speech.</li>
+                <li>Choose the language and press Start.</li>
+                <li>Read aloud. The words move as you speak and wait while you pause.</li>
+            </ol>
+            <p class="hint">Your script stays on this device. Nothing here is sent or shared.</p>
+        </div>
+    </section>
+
+    <section id="runner" hidden>
+        <div class="bar">
+            <span class="pill pill-idle" id="status">Paused · speak to continue</span>
+            <span class="counter" id="counter">0 of 0 words</span>
+            <button type="button" class="btn" id="restart">Restart</button>
+            <button type="button" class="btn" id="edit">Edit script</button>
+        </div>
+
+        <div class="stage" id="stage">
+            <div class="line" aria-hidden="true"></div>
+            <div class="scroll" id="scroll">
+                <div class="text" id="text" dir="ltr"></div>
+            </div>
+        </div>
+
+        <div class="problem" id="problem" hidden>
+            <span id="problemText"></span>
+        </div>
+
+        <div class="controls">
+            <div class="seg" role="group" aria-label="Pacing">
+                <button type="button" id="modeVoice" aria-pressed="true">Follow my voice</button>
+                <button type="button" id="modeSteady" aria-pressed="false">Steady speed</button>
+            </div>
+            <div class="slider-row" id="steadyRow" hidden>
+                <label for="speed">Speed</label>
+                <input type="range" id="speed" min="60" max="220" step="5" value="130">
+                <span class="val" id="speedLabel">130 words a minute</span>
+                <button type="button" class="btn" id="pauseSteady">Pause</button>
+            </div>
+            <div class="slider-row">
+                <label for="size">Text size</label>
+                <input type="range" id="size" min="24" max="88" step="2" value="44">
+                <span class="val" id="sizeLabel">44px</span>
+            </div>
+            <div class="btn-row">
+                <button type="button" class="btn ghost" id="mirror" aria-pressed="false">Mirror text</button>
+                <button type="button" class="btn ghost" id="fullscreen">Full screen</button>
+            </div>
+            <p class="hint">Tap any word to jump there. Arrow keys nudge the position on a computer. Voice follow needs the microphone; your words are only used to move the text.</p>
+        </div>
+    </section>
+
+</div>
+
+<script>
+// Pure speech-following logic. No DOM access here so it can be unit-tested in Node.
+(function (root) {
+    'use strict';
+
+    function normalizeWord(raw) {
+        return String(raw)
+            .toLowerCase()
+            .replace(/[֑-ׇ]/g, '') // Hebrew nikud/cantillation
+            .replace(/["'“”‘’.,;:!?()\[\]{}<>«»„"\-–—…/\\|@#$%^&*_+=~`׳״]/g, '')
+            .trim();
+    }
+
+    function wordsMatch(a, b) {
+        if (!a || !b) return false;
+        if (a === b) return true;
+        if (a.length >= 3 && b.startsWith(a)) return true; // script word is a prefix of what was heard
+        if (b.length >= 3 && a.startsWith(b)) return true; // heard a partial word (interim result)
+        return false;
+    }
+
+    // Split into word and whitespace tokens, preserving original spacing/newlines.
+    function tokenize(script) {
+        const parts = String(script).split(/(\s+)/);
+        const tokens = [];
+        const words = [];
+        for (const part of parts) {
+            if (!part) continue;
+            if (/^\s+$/.test(part)) {
+                tokens.push({ kind: 'space', text: part, index: -1 });
+            } else {
+                tokens.push({ kind: 'word', text: part, index: words.length });
+                words.push(normalizeWord(part));
+            }
+        }
+        return { tokens, words };
+    }
+
+    function detectLang(script) {
+        const he = (String(script).match(/[א-ת]/g) || []).length;
+        const en = (String(script).match(/[a-zA-Z]/g) || []).length;
+        return he > en ? 'he' : 'en';
+    }
+
+    // Align heard words against the script near the current pointer.
+    // Returns the new pointer (never moves backwards).
+    function advancePointer(words, pointer, transcript) {
+        const heard = String(transcript).split(/\s+/).map(normalizeWord).filter(Boolean);
+        if (!heard.length) return pointer;
+        const start = Math.max(0, pointer - 2);
+        const end = Math.min(words.length, pointer + 30);
+        let bestEnd = pointer;
+        let bestScore = 0;
+        for (let s = start; s < end; s++) {
+            let ti = 0;
+            let si = s;
+            let matched = 0;
+            while (ti < heard.length && si < end) {
+                if (wordsMatch(words[si], heard[ti])) {
+                    si++; ti++; matched++;
+                } else if (si + 1 < end && wordsMatch(words[si + 1], heard[ti])) {
+                    si += 2; ti++; matched++; // recognizer dropped one script word
+                } else {
+                    break;
+                }
+            }
+            if (matched > bestScore || (matched === bestScore && matched >= 2 && si > bestEnd)) {
+                bestScore = matched;
+                bestEnd = si;
+            }
+        }
+        return bestScore >= 2 && bestEnd > pointer ? bestEnd : pointer;
+    }
+
+    const api = { normalizeWord, wordsMatch, tokenize, detectLang, advancePointer };
+    if (typeof module !== 'undefined' && module.exports) module.exports = api;
+    else root.TPLogic = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// Teleprompter app wiring. Expects window.TPLogic from logic.js.
+// Test hook: set window.__TP_MOCK_RECOGNITION__ before this script runs to replace SpeechRecognition.
+(function () {
+    'use strict';
+
+    var L = window.TPLogic;
+
+    var els = {
+        editor: document.getElementById('editor'),
+        runner: document.getElementById('runner'),
+        script: document.getElementById('script'),
+        wordCount: document.getElementById('wordCount'),
+        langEn: document.getElementById('langEn'),
+        langHe: document.getElementById('langHe'),
+        start: document.getElementById('start'),
+        status: document.getElementById('status'),
+        counter: document.getElementById('counter'),
+        restart: document.getElementById('restart'),
+        edit: document.getElementById('edit'),
+        stage: document.getElementById('stage'),
+        scroll: document.getElementById('scroll'),
+        text: document.getElementById('text'),
+        problem: document.getElementById('problem'),
+        problemText: document.getElementById('problemText'),
+        modeVoice: document.getElementById('modeVoice'),
+        modeSteady: document.getElementById('modeSteady'),
+        steadyRow: document.getElementById('steadyRow'),
+        speed: document.getElementById('speed'),
+        speedLabel: document.getElementById('speedLabel'),
+        pauseSteady: document.getElementById('pauseSteady'),
+        size: document.getElementById('size'),
+        sizeLabel: document.getElementById('sizeLabel'),
+        mirror: document.getElementById('mirror'),
+        fullscreen: document.getElementById('fullscreen')
+    };
+
+    var state = {
+        view: 'edit',
+        mode: 'voice',
+        status: 'paused', // listening | paused | finished
+        pointer: 0,
+        lang: 'en',
+        fontSize: 44,
+        wpm: 130,
+        mirrored: false,
+        steadyPaused: false,
+        problem: null
+    };
+
+    var tokens = [];
+    var words = [];
+    var recognition = null;
+    var running = false;      // user wants voice follow active
+    var fatalVoice = false;   // mic blocked or no device
+    var finalCount = 0;
+    var lastSpeechAt = 0;
+    var steadyAcc = 0;
+    var steadyTimer = null;
+    var watchdogTimer = null;
+    var langTouched = false;
+
+    function recognitionClass() {
+        return window.__TP_MOCK_RECOGNITION__ || window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    }
+
+    function storageSet(key, value) {
+        try { localStorage.setItem(key, value); } catch (e) { /* private mode */ }
+    }
+    function storageGet(key) {
+        try { return localStorage.getItem(key); } catch (e) { return null; }
+    }
+
+    function setPointer(i) {
+        var max = words.length;
+        state.pointer = Math.max(0, Math.min(max, i));
+        renderProgress();
+    }
+
+    function setStatus(s) {
+        state.status = s;
+        renderBar();
+    }
+
+    function setProblem(msg) {
+        state.problem = msg;
+        if (msg) {
+            els.problemText.textContent = msg;
+            els.problem.hidden = false;
+        } else {
+            els.problem.hidden = true;
+        }
+    }
+
+    function renderBar() {
+        var pill;
+        if (state.mode === 'steady') {
+            pill = state.steadyPaused ? 'Steady speed · paused' : 'Steady speed';
+        } else if (state.status === 'listening') {
+            pill = 'Listening';
+        } else if (state.status === 'finished') {
+            pill = 'Finished';
+        } else {
+            pill = 'Paused · speak to continue';
+        }
+        els.status.textContent = pill;
+        els.status.className = 'pill ' + (
+            state.mode === 'voice' && state.status === 'listening' ? 'pill-live' :
+            state.status === 'finished' ? 'pill-live' : 'pill-idle'
+        );
+    }
+
+    function renderProgress() {
+        els.counter.textContent = Math.min(state.pointer, words.length) + ' of ' + words.length + ' words';
+        var nodes = els.text.querySelectorAll('[data-w]');
+        for (var i = 0; i < nodes.length; i++) {
+            var idx = Number(nodes[i].getAttribute('data-w'));
+            nodes[i].className = 'w' + (idx < state.pointer ? ' past' : '') + (idx === state.pointer ? ' current' : '');
+        }
+        if (state.pointer >= words.length && words.length) setStatus('finished');
+        scrollToCurrent();
+    }
+
+    function scrollToCurrent() {
+        var node = els.text.querySelector('[data-w="' + state.pointer + '"]');
+        if (!node) return;
+        var cr = els.scroll.getBoundingClientRect();
+        var wr = node.getBoundingClientRect();
+        var top = els.scroll.scrollTop + (wr.top - cr.top) - els.scroll.clientHeight * 0.38;
+        els.scroll.scrollTo({ top: top, behavior: 'smooth' });
+    }
+
+    function buildText() {
+        els.text.innerHTML = '';
+        var frag = document.createDocumentFragment();
+        for (var i = 0; i < tokens.length; i++) {
+            var t = tokens[i];
+            var span = document.createElement('span');
+            span.textContent = t.text;
+            if (t.kind === 'word') {
+                span.className = 'w';
+                span.setAttribute('data-w', String(t.index));
+                (function (index) {
+                    span.addEventListener('click', function () { setPointer(index); });
+                })(t.index);
+            }
+            frag.appendChild(span);
+        }
+        els.text.appendChild(frag);
+    }
+
+    function applyLang() {
+        var rtl = state.lang === 'he';
+        els.text.setAttribute('dir', rtl ? 'rtl' : 'ltr');
+        els.script.setAttribute('dir', rtl ? 'rtl' : 'ltr');
+        els.langEn.classList.toggle('on', !rtl);
+        els.langHe.classList.toggle('on', rtl);
+        els.langEn.setAttribute('aria-pressed', String(!rtl));
+        els.langHe.setAttribute('aria-pressed', String(rtl));
+    }
+
+    function applySize() {
+        els.text.style.fontSize = state.fontSize + 'px';
+        els.size.value = String(state.fontSize);
+        els.sizeLabel.textContent = state.fontSize + 'px';
+    }
+
+    function applyMirror() {
+        els.text.classList.toggle('mirror', state.mirrored);
+        els.mirror.classList.toggle('on', state.mirrored);
+        els.mirror.setAttribute('aria-pressed', String(state.mirrored));
+    }
+
+    function applySpeed() {
+        els.speed.value = String(state.wpm);
+        els.speedLabel.textContent = state.wpm + ' words a minute';
+    }
+
+    function applyMode() {
+        els.modeVoice.classList.toggle('on', state.mode === 'voice');
+        els.modeSteady.classList.toggle('on', state.mode === 'steady');
+        els.modeVoice.setAttribute('aria-pressed', String(state.mode === 'voice'));
+        els.modeSteady.setAttribute('aria-pressed', String(state.mode === 'steady'));
+        els.steadyRow.hidden = state.mode !== 'steady';
+        els.pauseSteady.textContent = state.steadyPaused ? 'Resume' : 'Pause';
+        renderBar();
+    }
+
+    function onTranscript(text) {
+        lastSpeechAt = Date.now();
+        if (state.pointer < words.length) setStatus('listening');
+        var next = L.advancePointer(words, state.pointer, text);
+        if (next > state.pointer) setPointer(next);
+    }
+
+    function stopVoice() {
+        running = false;
+        if (recognition) {
+            var rec = recognition;
+            recognition = null;
+            try { rec.onend = null; rec.stop(); } catch (e) { /* already stopped */ }
+        }
+    }
+
+    function startVoice() {
+        stopVoice(); // never leave an old recognizer running beside the new one
+        var SR = recognitionClass();
+        if (!SR) {
+            fatalVoice = true;
+            setProblem('This browser cannot listen. Chrome on a computer or Android phone works best; on iPhone use Safari.');
+            setMode('steady');
+            return;
+        }
+        fatalVoice = false;
+        finalCount = 0;
+        lastSpeechAt = Date.now();
+        running = true;
+
+        var rec = new SR();
+        rec.lang = state.lang === 'he' ? 'he-IL' : 'en-US';
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.maxAlternatives = 1;
+
+        rec.onresult = function (e) {
+            var finals = '';
+            for (var i = finalCount; i < e.results.length; i++) {
+                if (e.results[i].isFinal) {
+                    finals += ' ' + e.results[i][0].transcript;
+                    finalCount = i + 1;
+                }
+            }
+            var last = e.results[e.results.length - 1];
+            var interim = last && !last.isFinal ? last[0].transcript : '';
+            var text = (finals + ' ' + interim).trim();
+            if (text) onTranscript(text);
+        };
+
+        rec.onerror = function (e) {
+            var kind = e && e.error;
+            if (kind === 'not-allowed' || kind === 'service-not-allowed') {
+                fatalVoice = true;
+                running = false;
+                setProblem('The microphone is blocked. Allow microphone access for this page, then press Follow my voice.');
+                setMode('steady');
+            } else if (kind === 'audio-capture') {
+                fatalVoice = true;
+                running = false;
+                setProblem('No microphone was found on this device.');
+                setMode('steady');
+            } else if (kind === 'network') {
+                setProblem('The speech service needs an internet connection. Check the connection, or use Steady speed.');
+            }
+        };
+
+        rec.onend = function () {
+            if (running && state.mode === 'voice' && !fatalVoice) {
+                setTimeout(function () {
+                    if (running && recognition === rec) {
+                        try { rec.start(); } catch (e) { /* already running */ }
+                    }
+                }, 250);
+            }
+        };
+
+        recognition = rec;
+        try {
+            rec.start();
+            setStatus('listening');
+            setProblem(null);
+        } catch (e) {
+            setProblem('The microphone did not start. Try again.');
+        }
+    }
+
+    function setMode(mode) {
+        state.mode = mode;
+        if (mode === 'voice') {
+            state.steadyPaused = false;
+            setProblem(null);
+            startVoice();
+        } else {
+            stopVoice();
+            state.steadyPaused = false;
+        }
+        applyMode();
+    }
+
+    function startRun() {
+        if (!words.length) return;
+        state.view = 'run';
+        state.steadyPaused = false;
+        setProblem(null);
+        buildText();
+        setPointer(0);
+        els.editor.hidden = true;
+        els.runner.hidden = false;
+        document.body.classList.add('running');
+        startWatchdog();
+        startSteady();
+        state.mode = 'voice';
+        applyMode();
+        applySize();
+        applyMirror();
+        applySpeed();
+        startVoice();
+        window.scrollTo(0, 0);
+    }
+
+    function stopRun() {
+        stopVoice();
+        stopWatchdog();
+        stopSteady();
+        state.view = 'edit';
+        els.runner.hidden = true;
+        els.editor.hidden = false;
+        document.body.classList.remove('running');
+    }
+
+    function startWatchdog() {
+        stopWatchdog();
+        watchdogTimer = setInterval(function () {
+            if (state.mode === 'voice' && running && state.pointer < words.length) {
+                if (Date.now() - lastSpeechAt > 3500) setStatus('paused');
+            }
+        }, 1000);
+    }
+    function stopWatchdog() {
+        if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+    }
+
+    function startSteady() {
+        stopSteady();
+        steadyTimer = setInterval(function () {
+            if (state.mode !== 'steady' || state.steadyPaused) return;
+            steadyAcc += state.wpm / 600; // words per 100ms
+            var step = Math.floor(steadyAcc);
+            if (step > 0) {
+                steadyAcc -= step;
+                setPointer(state.pointer + step);
+            }
+        }, 100);
+    }
+    function stopSteady() {
+        if (steadyTimer) { clearInterval(steadyTimer); steadyTimer = null; }
+    }
+
+    function refreshWords() {
+        var parsed = L.tokenize(els.script.value);
+        tokens = parsed.tokens;
+        words = parsed.words;
+        els.wordCount.textContent = words.length
+            ? words.length + ' words' + (els.script.value.length > 14000 ? ' · too long to keep between visits' : '')
+            : 'Nothing pasted yet';
+        els.start.disabled = !words.length;
+        if (!langTouched && words.length) {
+            state.lang = L.detectLang(els.script.value);
+            applyLang();
+        }
+        if (els.script.value.length <= 14000) storageSet('teleprompter.script', els.script.value);
+    }
+
+    // Editor events
+    els.script.addEventListener('input', refreshWords);
+    els.langEn.addEventListener('click', function () { langTouched = true; state.lang = 'en'; applyLang(); storageSet('teleprompter.lang', 'en'); });
+    els.langHe.addEventListener('click', function () { langTouched = true; state.lang = 'he'; applyLang(); storageSet('teleprompter.lang', 'he'); });
+    els.start.addEventListener('click', startRun);
+
+    // Runner events
+    els.restart.addEventListener('click', function () { setPointer(0); });
+    els.edit.addEventListener('click', stopRun);
+    els.modeVoice.addEventListener('click', function () { setMode('voice'); });
+    els.modeSteady.addEventListener('click', function () { setMode('steady'); });
+    els.pauseSteady.addEventListener('click', function () {
+        state.steadyPaused = !state.steadyPaused;
+        applyMode();
+    });
+    els.speed.addEventListener('input', function () {
+        state.wpm = Number(els.speed.value);
+        applySpeed();
+        storageSet('teleprompter.wpm', String(state.wpm));
+    });
+    els.size.addEventListener('input', function () {
+        state.fontSize = Number(els.size.value);
+        applySize();
+        storageSet('teleprompter.size', String(state.fontSize));
+    });
+    els.mirror.addEventListener('click', function () {
+        state.mirrored = !state.mirrored;
+        applyMirror();
+        storageSet('teleprompter.mirror', state.mirrored ? '1' : '0');
+    });
+    els.fullscreen.addEventListener('click', function () {
+        var el = document.documentElement;
+        if (!el.requestFullscreen) { setProblem('Full screen is not available in this browser.'); return; }
+        try {
+            var req = el.requestFullscreen();
+            if (req && req.catch) req.catch(function () { setProblem('Full screen was blocked. Try the browser menu instead.'); });
+        } catch (e) {
+            setProblem('Full screen is not available in this browser.');
+        }
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (state.view !== 'run') return;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { setPointer(state.pointer + 1); e.preventDefault(); }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { setPointer(state.pointer - 1); e.preventDefault(); }
+        if (e.key === ' ' && state.mode === 'steady') { state.steadyPaused = !state.steadyPaused; applyMode(); e.preventDefault(); }
+    });
+
+    window.addEventListener('beforeunload', stopVoice);
+
+    // Init
+    var savedScript = storageGet('teleprompter.script');
+    if (savedScript) els.script.value = savedScript;
+    var savedLang = storageGet('teleprompter.lang');
+    if (savedLang === 'en' || savedLang === 'he') { state.lang = savedLang; langTouched = true; }
+    var savedSize = Number(storageGet('teleprompter.size'));
+    if (savedSize >= 24 && savedSize <= 88) state.fontSize = savedSize;
+    var savedWpm = Number(storageGet('teleprompter.wpm'));
+    if (savedWpm >= 60 && savedWpm <= 220) state.wpm = savedWpm;
+    state.mirrored = storageGet('teleprompter.mirror') === '1';
+    applyLang();
+    applySize();
+    applyMirror();
+    applySpeed();
+    refreshWords();
+    if (!recognitionClass()) {
+        els.modeVoice.disabled = true;
+        els.modeVoice.title = 'This browser cannot listen';
+    }
+})();
+
+</script>
+</body>
+</html>
