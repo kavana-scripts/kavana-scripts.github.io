@@ -267,7 +267,7 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
                 <li>Choose the language and press Start.</li>
                 <li>Read aloud. The words move as you speak and wait while you pause.</li>
             </ol>
-            <p class="hint">Your script stays on this device. Nothing here is sent or shared.</p>
+            <p class="hint">Your script is saved only on this device. Voice follow sends microphone audio to your browser's speech service.</p>
         </div>
     </section>
 
@@ -290,6 +290,7 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
             <span id="problemText"></span>
         </div>
 
+        <p class="hint" id="heard" aria-live="off">Heard: waiting for speech</p>
         <div class="controls">
             <div class="seg" role="group" aria-label="Pacing">
                 <button type="button" id="modeVoice" aria-pressed="true">Follow my voice</button>
@@ -360,34 +361,41 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
         return he > en ? 'he' : 'en';
     }
 
-    // Align heard words against the script near the current pointer.
-    // Returns the new pointer (never moves backwards).
+    // Each recognition result is aligned from its own fixed starting position.
+    // Allow short omissions and extra recognized words, but require evidence
+    // before jumping ahead. Repeated interim revisions cannot count twice.
     function advancePointer(words, pointer, transcript) {
         const heard = String(transcript).split(/\s+/).map(normalizeWord).filter(Boolean);
-        if (!heard.length) return pointer;
-        const start = Math.max(0, pointer - 2);
-        const end = Math.min(words.length, pointer + 30);
-        let bestEnd = pointer;
-        let bestScore = 0;
-        for (let s = start; s < end; s++) {
-            let ti = 0;
-            let si = s;
-            let matched = 0;
-            while (ti < heard.length && si < end) {
-                if (wordsMatch(words[si], heard[ti])) {
-                    si++; ti++; matched++;
-                } else if (si + 1 < end && wordsMatch(words[si + 1], heard[ti])) {
-                    si += 2; ti++; matched++; // recognizer dropped one script word
-                } else {
-                    break;
+        if (!heard.length || pointer >= words.length) return pointer;
+        const end = Math.min(words.length, pointer + Math.max(40, heard.length * 2 + 8));
+        let paths = new Map();
+        for (let s = Math.max(0, pointer - 2); s < Math.min(end, pointer + 7); s++) {
+            paths.set(s, { score: -Math.abs(s - pointer) * 0.8, matched: 0 });
+        }
+        let best = { score: 0, end: pointer };
+        for (let h = 0; h < heard.length; h++) {
+            const next = new Map();
+            function keep(pos, candidate) {
+                const old = next.get(pos);
+                if (!old || candidate.score > old.score) next.set(pos, candidate);
+            }
+            for (const [pos, path] of paths) {
+                keep(pos, { score: path.score - 1.6, matched: path.matched });
+                for (let skip = 0; skip <= 3 && pos + skip < end; skip++) {
+                    if (!wordsMatch(words[pos + skip], heard[h])) continue;
+                    const candidate = { score: path.score + 3 - skip * 0.8, matched: path.matched + 1 };
+                    const dest = pos + skip + 1;
+                    keep(dest, candidate);
+                    const enough = candidate.matched >= 2 && candidate.matched >= (h + 1) * 0.5;
+                    const immediate = heard.length === 1 && h === 0 && pos === pointer && skip === 0 && words[pos] === heard[h];
+                    if ((enough || immediate) && dest > pointer && candidate.score > best.score) {
+                        best = { score: candidate.score, end: dest };
+                    }
                 }
             }
-            if (matched > bestScore || (matched === bestScore && matched >= 2 && si > bestEnd)) {
-                bestScore = matched;
-                bestEnd = si;
-            }
+            paths = next;
         }
-        return bestScore >= 2 && bestEnd > pointer ? bestEnd : pointer;
+        return best.end;
     }
 
     const api = { normalizeWord, wordsMatch, tokenize, detectLang, advancePointer };
@@ -414,6 +422,7 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
         start: document.getElementById('start'),
         status: document.getElementById('status'),
         counter: document.getElementById('counter'),
+        heard: document.getElementById('heard'),
         restart: document.getElementById('restart'),
         edit: document.getElementById('edit'),
         stage: document.getElementById('stage'),
@@ -451,7 +460,7 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
     var recognition = null;
     var running = false;      // user wants voice follow active
     var fatalVoice = false;   // mic blocked or no device
-    var finalCount = 0;
+    var resultAnchors = [];
     var lastSpeechAt = 0;
     var steadyAcc = 0;
     var steadyTimer = null;
@@ -473,6 +482,12 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
         var max = words.length;
         state.pointer = Math.max(0, Math.min(max, i));
         renderProgress();
+    }
+
+    function jumpTo(index) {
+        setPointer(index);
+        els.heard.textContent = 'Heard: waiting for speech';
+        if (state.view === 'run' && state.mode === 'voice') startVoice();
     }
 
     function setStatus(s) {
@@ -539,7 +554,7 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
                 span.className = 'w';
                 span.setAttribute('data-w', String(t.index));
                 (function (index) {
-                    span.addEventListener('click', function () { setPointer(index); });
+                    span.addEventListener('click', function () { jumpTo(index); });
                 })(t.index);
             }
             frag.appendChild(span);
@@ -584,10 +599,11 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
         renderBar();
     }
 
-    function onTranscript(text) {
+    function onTranscript(text, anchor) {
         lastSpeechAt = Date.now();
         if (state.pointer < words.length) setStatus('listening');
-        var next = L.advancePointer(words, state.pointer, text);
+        els.heard.textContent = 'Heard: ' + text.slice(-240);
+        var next = L.advancePointer(words, anchor, text);
         if (next > state.pointer) setPointer(next);
     }
 
@@ -610,7 +626,7 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
             return;
         }
         fatalVoice = false;
-        finalCount = 0;
+        resultAnchors = [];
         lastSpeechAt = Date.now();
         running = true;
 
@@ -620,18 +636,19 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
         rec.interimResults = true;
         rec.maxAlternatives = 1;
 
+        rec.onstart = function () {
+            if (recognition !== rec) return;
+            // Result indexes start over whenever mobile browsers end a session.
+            resultAnchors = [];
+        };
+
         rec.onresult = function (e) {
-            var finals = '';
-            for (var i = finalCount; i < e.results.length; i++) {
-                if (e.results[i].isFinal) {
-                    finals += ' ' + e.results[i][0].transcript;
-                    finalCount = i + 1;
-                }
+            if (recognition !== rec || !running || state.mode !== 'voice') return;
+            for (var i = e.resultIndex || 0; i < e.results.length; i++) {
+                if (resultAnchors[i] === undefined) resultAnchors[i] = state.pointer;
+                var text = e.results[i][0].transcript.trim();
+                if (text) onTranscript(text, resultAnchors[i]);
             }
-            var last = e.results[e.results.length - 1];
-            var interim = last && !last.isFinal ? last[0].transcript : '';
-            var text = (finals + ' ' + interim).trim();
-            if (text) onTranscript(text);
         };
 
         rec.onerror = function (e) {
@@ -687,10 +704,10 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
     function startRun() {
         if (!words.length) return;
         state.view = 'run';
+        els.heard.textContent = 'Heard: waiting for speech';
         state.steadyPaused = false;
         setProblem(null);
         buildText();
-        setPointer(0);
         els.editor.hidden = true;
         els.runner.hidden = false;
         document.body.classList.add('running');
@@ -701,6 +718,7 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
         applySize();
         applyMirror();
         applySpeed();
+        setPointer(0);
         startVoice();
         window.scrollTo(0, 0);
     }
@@ -765,7 +783,7 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
     els.start.addEventListener('click', startRun);
 
     // Runner events
-    els.restart.addEventListener('click', function () { setPointer(0); });
+    els.restart.addEventListener('click', function () { jumpTo(0); });
     els.edit.addEventListener('click', stopRun);
     els.modeVoice.addEventListener('click', function () { setMode('voice'); });
     els.modeSteady.addEventListener('click', function () { setMode('steady'); });
@@ -801,8 +819,8 @@ body.running .problem { background: #33291d; border-color: #57452a; color: #eec8
 
     document.addEventListener('keydown', function (e) {
         if (state.view !== 'run') return;
-        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { setPointer(state.pointer + 1); e.preventDefault(); }
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { setPointer(state.pointer - 1); e.preventDefault(); }
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { jumpTo(state.pointer + 1); e.preventDefault(); }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { jumpTo(state.pointer - 1); e.preventDefault(); }
         if (e.key === ' ' && state.mode === 'steady') { state.steadyPaused = !state.steadyPaused; applyMode(); e.preventDefault(); }
     });
 
